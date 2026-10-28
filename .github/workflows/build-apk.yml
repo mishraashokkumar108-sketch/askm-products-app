@@ -1,0 +1,66 @@
+name: Build ASKM Products APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**.zip'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Extract app ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)
+          test -n "$ZIP_FILE" || exit 1
+          mkdir app-source
+          unzip -q "$ZIP_FILE" -d app-source
+          APP_DIR=$(find app-source -name package.json -not -path '*/node_modules/*' -printf '%h\n' | head -n 1)
+          test -n "$APP_DIR" || exit 1
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Add Android platform
+        run: npx cap add android
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Generate launcher icons
+        run: npx capacitor-assets generate --android
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Sync Android
+        run: npx cap sync android
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Build APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASKM-Products-APK
+          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
